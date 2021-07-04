@@ -1,3 +1,5 @@
+import collections
+import json
 import os
 from datetime import time
 import random
@@ -9,9 +11,13 @@ import numpy as np
 import pandas as pd
 import random
 import networkx as nx
-
+import time
+from main import FPGrowth
 from shopping import Shopping, Cell
 import main
+
+# QoL for display
+pd.set_option('display.max_columns', 30)
 
 def encodeData():
 
@@ -45,9 +51,7 @@ class SoS:
 
     def __init__(self, configuration, staminaDistr,explanations):
 
-        self.shoppingClass = Shopping([23,21])
-
-        print(len(configuration))
+        self.shoppingClass = Shopping([23,21],configuration)
 
         #self.shoppingClass.changeShoppingConfig(configuration)
 
@@ -56,6 +60,17 @@ class SoS:
         self.staminaDistr = staminaDistr
 
         self.explanations = explanations
+
+        self.auxNeighbors = self.getAuxNeighbors()
+
+        self.auxNeighborsPrimary = self.getAuxNeighborsPrimary()
+
+
+        data, explanations = cvtCsvDataframe(pd.read_csv("data.csv"), pd.read_csv("explanations.csv"))
+
+        mergedReceiptExplanations = pd.merge(data, explanations, on='receiptID', how='outer')
+
+        self.boughtAndWishlist = mergedReceiptExplanations[['PRODUCTS', 'WISHLIST']].to_numpy()
 
 
     def generateCustomers(self, samples):
@@ -79,11 +94,11 @@ class SoS:
 
 
     def findNeighbors(self, currentCell, typeSearch):
-
         '''
 
-        :param currentCell: Receives the current shopping cell
-        :return: Return the distance to the closest neighbor
+        :param currentCell: Current cell to search
+        :param typeSearch: Type of search 1 - Halls 2- Shelves
+        :return: Return the neighbors
         '''
 
         neighbors = []
@@ -146,7 +161,7 @@ class SoS:
 
                 if self.shopping[i][j].product == item:
 
-                    pathsToThisCell = self.findNeighbors([i,j],1)
+                    pathsToThisCell = self.auxNeighborsPrimary[f"[{i},{j}]"]
 
                     for s in pathsToThisCell: allPathsToItem.append(s)
 
@@ -164,8 +179,37 @@ class SoS:
         return paths[np.argmin(pathsLenght)]
 
 
+    def getAuxNeighborsPrimary(self):
+
+        aux = {}
+
+        size = self.shopping.shape
+        for j in range(size[1]):
+
+            for i in range(size[0]):
+
+                    aux[f"[{i},{j}]"] = self.findNeighbors([i, j], 1)
+
+        return aux
+
+    def getAuxNeighbors(self):
+
+        aux = {}
+
+        size = self.shopping.shape
+        for j in range(size[1]):
+
+            for i in range(size[0]):
+
+                    aux[f"[{i},{j}]"] = self.findNeighbors([i, j], 2)
+
+        return aux
+
+
+
 
     def getCellProducts(self, cell):
+
 
         size = self.shopping.shape
 
@@ -175,7 +219,7 @@ class SoS:
 
                 if self.shopping[i][j].id == cell:
 
-                    cells = self.findNeighbors([i,j],2)
+                    cells = self.auxNeighbors[f"[{i},{j}]"]
 
                     products = []
                     for c in cells:
@@ -187,7 +231,6 @@ class SoS:
 
     def getProbabilityOfPicking(self, product):
 
-
         #Check if the file already exists
         if os.path.exists("probabilityBuy.p"): probToBuy = pickle.load(open("probabilityBuy.p","rb"))
 
@@ -196,16 +239,12 @@ class SoS:
 
             # organize_data()
             # Read the csv file and convert it to a well formatted dataframe
-            data, explanations = cvtCsvDataframe(pd.read_csv("data.csv"), pd.read_csv("explanations.csv"))
 
-            mergedReceiptExplanations = pd.merge(data, explanations, on='receiptID', how='outer')
-
-            boughtAndWishlist = mergedReceiptExplanations[['PRODUCTS', 'WISHLIST']].to_numpy()
 
             aux = {}
 
             #For each receipt
-            for p in tqdm(boughtAndWishlist):
+            for p in tqdm(self.boughtAndWishlist):
 
                 #go through the products bought
                 for i in p[0]:
@@ -228,6 +267,8 @@ class SoS:
             for k in aux:
                 probToBuy[k] = aux[k]['NotIn'] / aux[k]['Counter']
 
+
+
             pickle.dump(probToBuy,open("probabilityBuy.p","wb"))
 
 
@@ -244,18 +285,16 @@ class SoS:
 
 
         sales = []
+
         #For each customer
         for customer in tqdm(customers):
 
             currentWishlist = customer[0]
-            print(currentWishlist)
             currentWishlist.reverse()
-            print(currentWishlist)
-            exit()
+
             currentStamina = customer[1]
 
             productsBought = []
-
             #print(f"Customer wishlist: {currentWishlist}")
 
             #While the customer still has products the wants and still has stamina keep the simulation
@@ -264,13 +303,16 @@ class SoS:
                 item = currentWishlist[0]
                 #print(f"Looking for {products.loc[products['ID'] == item, 'Nome'].iloc[0]}")
 
+
                 closest = self.findClosestProduct(item)
                 #print(f"Found {products.loc[products['ID'] == item, 'Nome'].iloc[0]} on cell {closest[-1]}")
+
 
                 for cell in range(len(closest)):
                     #print(f"I am on cell  {closest[cell]}")
 
                     prodcutsCloseToCell = self.getCellProducts(closest[cell])
+
 
                     for prod in prodcutsCloseToCell:
 
@@ -285,8 +327,10 @@ class SoS:
                         #Otherwise calculate the probability of buying it
                         else:
 
+
                             #Probability of this product being picked without being in the wishlist
                             prob = self.getProbabilityOfPicking(prod)
+
 
                             #Random probability
                             randomProb = random.uniform(0,1)
@@ -297,12 +341,6 @@ class SoS:
                                 #print(f"Felt like buying {products.loc[products['ID'] == prod, 'Nome'].iloc[0]}, so I bought it.")
 
 
-                    try:
-                        time.sleep(1)
-                        #print(f"Walking to cell {closest[cell + 1]}")
-                    except:
-                        pass
-
                     currentStamina -= 1
                     #print(f"Current stamina : {currentStamina}")
 
@@ -310,11 +348,12 @@ class SoS:
                     if currentStamina <= 0:
                         #print("I got tired!")
                         break
-                    elif len(currentWishlist) == 0:
+                    elif len(currentWishlist) <= 0:
                         #print("Bought everything!")
                         break
 
             sales.append(productsBought)
+
 
         return sales
 
@@ -328,7 +367,6 @@ class SoS:
 
         totalProfit = 0
 
-        print("Calculating profit ...")
         for sale in tqdm(sales):
 
             for product in sale:
@@ -350,33 +388,184 @@ def generateSimulator(config):
 
     simulator = SoS(config,main.obtainStaminaDistribution(mergedReceiptExplanations['DISTANCE'].to_numpy()), explanations)
 
-
     return simulator
 
 
-def testConfigs():
 
+def orderProductsPerImportanceAndProfit(shop):
+
+    #Order products
+    ordered = products.sort_values(by=['Margem Lucro'], ascending=True)
+    ordered = ordered['ID'].to_numpy()
+
+    aux = []
+    for p in ordered:
+        for _ in range(products.loc[products['ID'] == p,'Total Prateleiras'].iloc[0]):
+            aux.append(p)
+
+    size = [23,21]
+
+    ranksShelves = {}
+
+    #Order importance cells
+    for j in range(size[1]):
+
+        for i in range(size[0]):
+
+            ranksShelves[shop.shopping[i][j].id] = shop.shopping[i][j].rank
+
+    ranksShelves = dict(sorted(ranksShelves.items(), key=lambda item: item[1]))
+
+    indice = 0
+
+    for i in ranksShelves.keys():
+        if i in shop.shoppingClass.config:
+            ranksShelves[i] = int(aux[indice])
+            indice += 1
+
+
+    with open("profitImportance.json","w") as f:
+        json.dump(ranksShelves,f)
+
+    return ranksShelves
+
+
+def orderProductsPerPair(shop):
+
+
+    data, explanations = cvtCsvDataframe(pd.read_csv("data.csv"), pd.read_csv("explanations.csv"))
+
+    if os.path.exists("productPair.csv"):
+        dfAux = pd.read_csv("productPair.csv")
+
+        shelves = dfAux['shelve'].to_numpy()
+        products_aux = dfAux['product'].to_numpy()
+
+
+        dictionary = {}
+        for i, j in zip(shelves,products_aux):
+            dictionary[i] = j
+
+
+        return dict(collections.OrderedDict(sorted(dictionary.items())))
+
+
+    else:
+        #Order products
+        ordered = products.sort_values(by=['Margem Lucro'], ascending=True)
+        ordered = ordered['ID'].to_numpy()
+
+        aux = []
+        for p in ordered:
+            for _ in range(products.loc[products['ID'] == p,'Total Prateleiras'].iloc[0]):
+                aux.append(p)
+
+        size = [23,21]
+
+        ranksShelves = {}
+        auxRankShelves = {}
+
+        #Order importance cells
+        for j in range(size[1]):
+
+            for i in range(size[0]):
+
+                ranksShelves[shop.shopping[i][j].id] = shop.shopping[i][j].rank
+                auxRankShelves[shop.shopping[i][j].id] = False
+        ranksShelves = dict(sorted(ranksShelves.items(), key=lambda item: item[1]))
+
+
+        indice = 0
+
+
+        pairShelves1 =  [[6,7,8,9],
+                         [185,208,231,254],
+                         [215,216,217,218],
+                         [470,471,472,473],
+                         [250,273,296,251]]
+
+        resultsFP = FPGrowth(data,0.6,0.5)
+
+        resultsFP = [list(s) for s in resultsFP]
+
+
+        for shelves in pairShelves1:
+
+            counter = 0
+
+            for shelf in shelves:
+
+                try:
+                    sample = random.sample(resultsFP[counter],1)[0]
+                    ranksShelves[shelf] = sample
+                    aux.remove(sample)
+                    auxRankShelves[shelf] = True
+                except:
+                    pass
+
+                counter+=1
+
+
+
+        #First place the products pairs
+        for i in ranksShelves.keys():
+            if i in shop.shoppingClass.config:
+                if not auxRankShelves[i]:
+                    ranksShelves[i] = int(aux[indice])
+                    indice += 1
+
+
+        dfAux = pd.Series(ranksShelves).to_frame()
+        dfAux.to_csv("productPair.csv")
+
+
+        return ranksShelves
+
+def loadMain():
+    if os.path.exists("productPair.csv"):
+        dfAux = pd.read_csv("productPair.csv")
+
+        shelves = dfAux['shelve'].to_numpy()
+        products_aux = dfAux['product'].to_numpy()
+
+
+        dictionary = {}
+        for i, j in zip(shelves,products_aux):
+            dictionary[i] = j
+
+        return dict(collections.OrderedDict(sorted(dictionary.items())))
+
+if __name__ == '__main__':
+
+    all_config = []
+    shelves = loadMain()
+
+    sim = generateSimulator([])
+
+    for s in shelves:
+
+        if s in sim.shoppingClass.config:
+            all_config.append(s)
 
     config = pd.read_csv("config.csv").to_numpy()[0][1:]
 
-    sim = generateSimulator(config)
 
-    customers = sim.generateCustomers(5000)
+    #config = orderProductsPerImportanceAndProfit(sim)
+    data = pickle.load(open("results/3.p", "rb"))[1][1]
+    print(len(data))
+    config = {all_config[i]: data[i] for i in range(len(all_config))}
+
+
+    sim.shoppingClass.changeShoppingConfigCustom(config)
+
+    sim.shoppingClass.plotImportance()
+
+    customers = sim.generateCustomers(10000)
 
     sales = sim.simulateCustomers(customers)
 
     profit = sim.evaluateShoppingCost(sales)
 
-
-
     print(profit)
-    print(products)
 
-
-
-
-if __name__ == '__main__':
-
-
-    testConfigs()
 

@@ -1,4 +1,5 @@
-
+import collections
+import pickle
 
 import pandas as pd
 import json
@@ -13,8 +14,8 @@ import matplotlib.pyplot as plt
 
 
 from mlxtend.preprocessing import TransactionEncoder
-from mlxtend.frequent_patterns import fpgrowth
-
+from mlxtend.frequent_patterns import fpgrowth as fpnorm
+from fpgrowth_py import fpgrowth as fptwo
 
 PATH_TO_RECEIPTS = "E:/receipts/"
 
@@ -135,7 +136,7 @@ def Extract():
     encodeData()
     organize_data()
 
-def FPGrowth(data, support):
+def FPGrowth(data, support, conf):
 
     #Get all transactions
     receipts = data['PRODUCTS'].to_numpy()
@@ -147,10 +148,17 @@ def FPGrowth(data, support):
 
     #Calculate the FPGrowth«
     print("FPGrowth results: \n")
-    fp = fpgrowth(oneHotProducts, min_support=support)
+    fp = fpnorm(oneHotProducts, min_support=support)
+
+    fp2 = fptwo(receipts, minSupRatio=support, minConf=conf)
+
 
     #Sort the values by support
     fp = fp.sort_values(by=['support'], ascending=False)
+
+    print(fp2[0])
+
+    #fp2 = fp2.sort_values(by=['support'], ascending=False)
 
     print(fp)
 
@@ -170,6 +178,8 @@ def FPGrowth(data, support):
     fp['itemsets'] = names
 
     print(fp)
+    fp.to_csv("rulesSupport.csv")
+    return ids
 
 
 def dataAnalytics(data):
@@ -182,16 +192,19 @@ def dataAnalytics(data):
     print("Transactions sorted by total")
     print("--------------------------")
     ordered_total = data.sort_values(by=['TOTAL'], ascending=False)
-    print(ordered_total.head())
+    print(ordered_total.head(10))
     print("--------------------------\n\n")
 
     print("Transactions Grouped by Client Total Value to the supermarket")
     print("--------------------------")
     groupedClients = data.groupby(['cNIF']).sum().sort_values(by=['TOTAL'], ascending=False)
-    print(groupedClients)
+
+    groupedClients100 =  groupedClients.head(100)
+    groupedClients100 =  groupedClients100.drop(columns=['receiptID','ID'])
+    groupedClients100.to_csv("TOP_100_TOTAL.csv")
+    print(groupedClients100)
+
     print("--------------------------\n\n")
-
-
 
 
 
@@ -253,7 +266,22 @@ if __name__ == '__main__':
 
 
     #Calculate FP growth algorithm for the receipts
-    #FPGrowth(data, 0.5)
+    FPGrowth(data, 0.5,0.5)
 
+    '''a = pickle.load(open("probabilityBuy.p","rb"))
+    a = dict(sorted(a.items(), key=lambda item: item[1]))
+    print(a)
 
+    keys = list(a.keys())[-6:]
+    print(keys)
 
+    aux = []
+    aux2 = []
+    for i in keys:
+        aux.append(products.loc[products['ID'] == i, 'Nome'].iloc[0])
+        aux2.append(a[i])
+
+    print(aux,aux2)
+
+    x = pd.DataFrame({'Name' : aux, 'Probability':aux2})
+    print(x)'''

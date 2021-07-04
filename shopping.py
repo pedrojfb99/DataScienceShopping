@@ -1,3 +1,5 @@
+import collections
+
 import pandas as pd
 import numpy as np
 import os
@@ -7,8 +9,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import networkx as nx
+import json
 import pprint
 import csv
+
+
+def encodeData():
+
+    df = pd.read_csv('products.txt', delimiter="\t")
+    dataHere = df['Nome'].str.strip()
+
+    indexes = [x for x in range(0,len(dataHere))]
+
+    df['ID'] = indexes
+    #print(data.to_numpy())
+
+
+    return df
+
+
+products = encodeData()
 
 class Cell:
 
@@ -21,7 +41,7 @@ class Cell:
 
 class Shopping:
 
-    def __init__(self,size):
+    def __init__(self,size,config):
 
         self.entrance = 414
         self.exit = 115
@@ -36,7 +56,10 @@ class Shopping:
         self.shopping = np.empty(shape=(size[0],size[1]), dtype=object)
 
         #Initialize the shopping with the default shelves' layout
-        self.initializeShopping(size)
+        if len(config) ==  0:
+            self.initializeShopping(size)
+        else:
+            self.changeShoppingConfig(config)
 
         #Get a graph representation of the shopping hallways
         self.graphShopping = nx.DiGraph(self.createGraph())
@@ -44,13 +67,19 @@ class Shopping:
         #Calculate each shelve importance
         self.calculateImportance()
 
-
+        #self.plotImportance()
 
         print("Shopping Initialized !!!\n")
 
 
 
     def plotImportance(self):
+
+        '''
+        Plots the importance of every shelve in the supermarket
+
+        :return: None
+        '''
 
         size = self.shopping.shape
 
@@ -72,9 +101,10 @@ class Shopping:
 
 
 
+
     def distanceToEntrance(self, currentCell):
         '''
-
+        Calculates the distance of each shelf from the entrance
         :param currentCell: Receives the current shopping cell
         :return: Return the distance to the closest neighbor
         '''
@@ -110,13 +140,159 @@ class Shopping:
             if possiblePath not in notToAdd and possiblePath not in self.config:
                 pathsLenght.append(len(nx.dijkstra_path(self.graphShopping, self.entrance, possiblePath)))
 
-        return min(pathsLenght), len(pathsLenght)
+        return -min(pathsLenght), len(pathsLenght)
 
+
+    def findNeighbors(self, currentCell, typeSearch, n):
+        '''
+
+        :param currentCell: Current cell to search
+        :param typeSearch: Type of search 1 - Halls 2- Shelves
+        :return: Return the neighbors
+        '''
+
+        neighbors = []
+
+        for i in range(n):
+
+            try:
+                #If there are neighbors in the top
+                if currentCell[0] > 0:
+
+                    #Get the top neighbor
+                    neighbors.append(self.shopping[currentCell[0] - i][currentCell[1]].id)
+
+                #If there are neighbors on the left
+                if currentCell[1] > 0:
+                    neighbors.append(self.shopping[currentCell[0]][currentCell[1] - i].id)
+
+                #If there are neighbors on the right
+                if currentCell[1] < self.shopping.shape[1]:
+                    neighbors.append(self.shopping[currentCell[0]][currentCell[1] + i].id)
+
+                #If there are neighbors on the bottom
+                if currentCell[0] < self.shopping.shape[0]:
+                    neighbors.append(self.shopping[currentCell[0] + i][currentCell[1]].id)
+            except:
+                pass
+
+        aux = []
+
+        if typeSearch == 1:
+
+            notToAdd = [1,461,483,23]
+
+            for i in neighbors:
+                if i not in self.shoppingClass.config and i not in notToAdd:
+                    aux.append(i)
+
+        else:
+            notToAdd = [1, 461, 483, 23]
+
+            for i in neighbors:
+                if i in self.shoppingClass.config and i not in notToAdd:
+                    aux.append(i)
+
+        return aux
+
+
+    def getCellRank(self,cell):
+        '''
+        Returns the rank of each cell
+        :param cell:
+        :return:
+        '''
+
+        size = self.shopping.shape
+
+        for j in range(size[1]):
+
+            for i in range(size[0]):
+
+                if self.shopping[i][j].id == cell:
+                    return products.loc[products['ID'] == self.shopping[i][j].product, 'Margem Lucro'].iloc[0]
+
+        return 0
+
+    def findNeighbors(self, currentCell, typeSearch, n):
+        '''
+
+        :param currentCell: Current cell to search
+        :param typeSearch: Type of search 1 - Halls 2- Shelves
+        :return: Return the neighbors
+        '''
+
+        neighbors = []
+
+        for i in range(1,n+1):
+
+            try:
+                # If there are neighbors in the top
+                if currentCell[0] > n+1:
+                    # Get the top neighbor
+                    neighbors.append(self.shopping[currentCell[0] - i][currentCell[1]].id)
+
+                # If there are neighbors on the left
+                if currentCell[1] > n+1:
+                    neighbors.append(self.shopping[currentCell[0]][currentCell[1] - i].id)
+
+                # If there are neighbors on the right
+                if currentCell[1]+n < self.shopping.shape[1]:
+
+                    neighbors.append(self.shopping[currentCell[0]][currentCell[1] + i].id)
+
+                # If there are neighbors on the bottom
+                if currentCell[0]+n < self.shopping.shape[0]:
+                    neighbors.append(self.shopping[currentCell[0] + i][currentCell[1]].id)
+
+
+            except:
+                pass
+
+        aux = []
+        if typeSearch == 1:
+
+            notToAdd = [1, 461, 483, 23]
+
+            for i in neighbors:
+                if i not in self.config and i not in notToAdd:
+                    aux.append(i)
+
+        else:
+            notToAdd = [1, 461, 483, 23]
+            for i in neighbors:
+                if i in self.config and i not in notToAdd:
+                    aux.append(i)
+
+        return aux
+
+
+    def getNeighborsQuality(self, cell, typeSearch):
+        '''
+        Returns the average rank of the n neighbors
+        :param cell:
+        :return:
+        '''
+        neighs = self.findNeighbors(cell, typeSearch,2)
+        sum = 0
+
+
+        #Calculate sum of each rank's neighbor
+        for i in neighs: sum += self.getCellRank(i)
+
+        return sum/len(neighs)
 
     def calculateImportance(self):
+        '''
+        Calculates the importance of each shelve
+
+        :return: None
+        '''
 
         size = self.shopping.shape
         controller = 1
+
+        geneticRank = []
 
         for j in range(size[1]):
 
@@ -125,15 +301,23 @@ class Shopping:
                 if controller in self.config:
                         importance = self.distanceToEntrance([i,j])
 
-                        self.shopping[i][j].rank = - importance[0]
+                        productProfit = products.loc[products['ID'] == self.shopping[i][j].product, 'Margem Lucro'].iloc[0]
+
+                        neighborsAverageRank = self.getNeighborsQuality([i,j],2)
+
+
+                        if importance[0] + productProfit + neighborsAverageRank < 10:
+                            geneticRank.append(self.shopping[i][j].id)
+
+                        self.shopping[i][j].rank = importance[0] + productProfit + neighborsAverageRank
 
                 controller += 1
 
+        return geneticRank
 
 
     def add(self,adj_list, a, b):
         '''
-
         :param adj_list: the adjancency matrix
         :param a: first cell to compare
         :param b: second cell to comapre
@@ -148,6 +332,10 @@ class Shopping:
 
 
     def createGraph(self):
+        '''
+        Creates a graph based on the hallways of the supermarket
+        :return: returns the edge connections
+        '''
 
         size = self.shopping.shape
 
@@ -186,7 +374,10 @@ class Shopping:
 
         return adj_list
 
-    def changeShoppingConfig(self,newConfig):
+
+
+
+    def changeShoppingConfig(self, newConfig):
 
         size = self.shopping.shape
 
@@ -215,6 +406,42 @@ class Shopping:
 
                 controller += 1
 
+
+        self.calculateImportance()
+
+
+    def changeShoppingConfigCustom(self, newConfig):
+        size = self.shopping.shape
+
+        auxiliar = []
+
+        controller = 1
+
+        productsPer = 0
+
+        #Iterate through columns
+        for j in range(size[1]):
+
+            for i in range(size[0]):
+
+                #If it a shelve then add the product
+                if controller in self.config:
+                    try:
+                        self.shopping[i][j] = Cell(controller,newConfig[controller],0)
+                        self.productsAux[controller] = newConfig[controller]
+                        auxiliar.append(newConfig[controller])
+                    except:
+                        self.shopping[i][j] = Cell(controller,-100,0)
+
+                    productsPer += 1
+
+                #Corridors
+                else:
+                    self.shopping[i][j] = Cell(controller, -100, 0)
+
+                controller += 1
+
+        return self.calculateImportance()
 
     def displayShopping(self):
         '''
@@ -281,6 +508,9 @@ class Shopping:
 
 
 
+
+
+
     #Load config
     def loadConfig(self,size):
         '''
@@ -333,7 +563,6 @@ class Shopping:
         #Get number of shelves for each product
         lst = df.to_numpy()[:,-2]
 
-
         aux = []
 
         for i in range(len(lst)):
@@ -343,19 +572,51 @@ class Shopping:
         return aux
 
 
+def loadConfig():
+
+    with open('products.json') as f:
+        data = json.load(f)
+
+    return list(data.values())
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
 
+    loadConfig()
+
     #Create a shopping
-    shop = Shopping([23,21])
+    shop = Shopping([23,21], [])
 
     defaultConfig = shop.loadProducts()
 
+    with open("profitImportance.json", "r") as f:
+        config= json.load(f)
+
+    od = collections.OrderedDict(sorted(config.items()))
+    ax = []
+
+    for i in sorted(od):
+        print(i)
+
+    print(list(ax))
+    exit()
+
     #random.shuffle(defaultConfig)
 
-    shop.changeShoppingConfig(defaultConfig)
+    shop.changeShoppingConfig(loadConfig())
 
-    # Plot the shopping's shelves importance
+    #shop.plotImportance()
+
+
+
     shop.plotImportance()
 
-    #Fazer simulador shopping
+
+
 
